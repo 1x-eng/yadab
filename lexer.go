@@ -315,7 +315,7 @@ func lexKeyword(source string, ic cursor) (*token, cursor, bool) {
 
 	return &token{
 		value: match,
-		kind:  kind,
+		kind:  keywordKind,
 		loc:   ic.loc,
 	}, cur, true
 }
