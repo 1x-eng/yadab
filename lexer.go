@@ -1,4 +1,4 @@
-package yadab
+package main
 
 import (
 	"fmt"
@@ -435,7 +435,7 @@ func lex(source string) ([]*token, error) {
 
 lex:
 	for cur.pointer < uint(len(source)) {
-		lexers := []lexer{lexString, lexNumeric}
+		lexers := []lexer{lexString, lexNumeric, lexSymbol, lexKeyword, lexIdentifier}
 		for _, l := range lexers {
 			if token, newCursor, ok := l(source, cur); ok {
 				cur = newCursor
@@ -453,10 +453,7 @@ lex:
 		if len(tokens) > 0 {
 			hint = " after " + tokens[len(tokens)-1].value
 		}
-		for _, t := range tokens {
-			fmt.Println(t.Value)
-		}
-		return nil, fmt.Errorf("Unable to lex token%s, at %d:%d", hint, cur.loc.line, cur.loc.col)
+		return nil, fmt.Errorf("could not lex unrecognized input at line %d, column %d%s", cur.loc.line+1, cur.loc.col+1, hint)
 	}
 
 	return tokens, nil
