@@ -34,15 +34,6 @@ const (
 	commaSymbol      symbol = ","
 	leftParenSymbol  symbol = "("
 	rightParenSymbol symbol = ")"
-	eqSymbol         symbol = "="
-	neqSymbol        symbol = "<>"
-	neqSymbol2       symbol = "!="
-	concatSymbol     symbol = "||"
-	plusSymbol       symbol = "+"
-	ltSymbol         symbol = "<"
-	lteSymbol        symbol = "<="
-	gtSymbol         symbol = ">"
-	gteSymbol        symbol = ">="
 )
 
 type tokenKind uint
@@ -53,6 +44,7 @@ const (
 	identifierKind
 	stringKind
 	numericKind
+	typeKind
 )
 
 type token struct {
@@ -72,18 +64,39 @@ func (t *token) equals(other *token) bool {
 
 type lexer func(string, cursor) (*token, cursor, bool)
 
-// lexNumeric is a Go function that performs lexical analysis on a numeric value in a given source string.
-//
-// It takes two parameters:
-// - source: a string representing the source code to be analyzed.
-// - ic: a cursor representing the initial position in the source string.
-//
-// It returns three values:
-// - token: a pointer to a token struct representing the analyzed token.
-// - cursor: a cursor representing the updated position in the source string after analysis.
-// - bool: a boolean value indicating whether the analysis was successful or not.
+func lex(source string) ([]*token, error) {
+	tokens := []*token{}
+	cur := cursor{}
+
+lex:
+	for cur.pointer < uint(len(source)) {
+		lexers := []lexer{lexKeyword, lexSymbol, lexString, lexNumeric, lexType, lexIdentifier}
+		for _, l := range lexers {
+			if token, newCursor, ok := l(source, cur); ok {
+				cur = newCursor
+
+				// Omit nil tokens for valid, but empty syntax like newlines
+				if token != nil {
+					tokens = append(tokens, token)
+				}
+
+				continue lex
+			}
+		}
+
+		hint := ""
+		if len(tokens) > 0 {
+			hint = " after " + tokens[len(tokens)-1].value
+		}
+		return nil, fmt.Errorf("Unable to lex token%s, at %d:%d", hint, cur.loc.line, cur.loc.col)
+	}
+
+	return tokens, nil
+}
+
 func lexNumeric(source string, ic cursor) (*token, cursor, bool) {
 	cur := ic
+
 	periodFound := false
 	expMarkerFound := false
 
@@ -95,30 +108,35 @@ func lexNumeric(source string, ic cursor) (*token, cursor, bool) {
 		isPeriod := c == '.'
 		isExpMarker := c == 'e'
 
+		// Must start with a digit or period
 		if cur.pointer == ic.pointer {
 			if !isDigit && !isPeriod {
 				return nil, ic, false
 			}
+
 			periodFound = isPeriod
 			continue
 		}
 
-		if isPeriod && periodFound {
-			return nil, ic, false
-		}
-
-		if isExpMarker && expMarkerFound {
-			return nil, ic, false
-		}
-
 		if isPeriod {
+			if periodFound {
+				return nil, ic, false
+			}
+
 			periodFound = true
+			continue
 		}
 
 		if isExpMarker {
+			if expMarkerFound {
+				return nil, ic, false
+			}
+
+			// No periods allowed after expMarker
 			periodFound = true
 			expMarkerFound = true
 
+			// expMarker must be followed by digits
 			if cur.pointer == uint(len(source)-1) {
 				return nil, ic, false
 			}
@@ -128,6 +146,8 @@ func lexNumeric(source string, ic cursor) (*token, cursor, bool) {
 				cur.pointer++
 				cur.loc.col++
 			}
+
+			continue
 		}
 
 		if !isDigit {
@@ -135,6 +155,7 @@ func lexNumeric(source string, ic cursor) (*token, cursor, bool) {
 		}
 	}
 
+	// No characters accumulated
 	if cur.pointer == ic.pointer {
 		return nil, ic, false
 	}
@@ -146,21 +167,6 @@ func lexNumeric(source string, ic cursor) (*token, cursor, bool) {
 	}, cur, true
 }
 
-// lexCharacterDelimited scans a source string starting from the given cursor position
-// and looks for a character delimiter.
-//
-// It returns a token, the updated cursor position, and a boolean indicating whether
-// a delimiter was found.
-//
-// Parameters:
-// - source: The source string to scan.
-// - ic: The initial cursor position.
-// - delimiter: The character delimiter to look for.
-//
-// Returns:
-// - The token representing the delimited value.
-// - The updated cursor position.
-// - A boolean indicating whether a delimiter was found.
 func lexCharacterDelimited(source string, ic cursor, delimiter byte) (*token, cursor, bool) {
 	cur := ic
 
@@ -175,12 +181,21 @@ func lexCharacterDelimited(source string, ic cursor, delimiter byte) (*token, cu
 	for ; cur.pointer < uint(len(source)); cur.pointer++ {
 		c := source[cur.pointer]
 
-		if c == delimiter && (cur.pointer+1 >= uint(len(source)) || source[cur.pointer+1] != delimiter) {
-			return &token{
-				value: string(value),
-				loc:   ic.loc,
-				kind:  stringKind,
-			}, cur, true
+		if c == delimiter {
+			// SQL escapes are via double characters, not backslash.
+			if cur.pointer+1 >= uint(len(source)) || source[cur.pointer+1] != delimiter {
+				cur.pointer++ // consume the closing delimiter
+				cur.loc.col++
+				return &token{
+					value: string(value),
+					loc:   ic.loc,
+					kind:  stringKind,
+				}, cur, true
+			} else {
+				value = append(value, delimiter)
+				cur.pointer++
+				cur.loc.col++
+			}
 		}
 
 		value = append(value, c)
@@ -190,28 +205,13 @@ func lexCharacterDelimited(source string, ic cursor, delimiter byte) (*token, cu
 	return nil, ic, false
 }
 
-// lexString is a function that lexes a string literal in the given source code.
-//
-// It takes the source code as a string and the initial cursor position as input.
-// It returns a token, a new cursor position, and a boolean value indicating whether lexing was successful.
 func lexString(source string, ic cursor) (*token, cursor, bool) {
 	return lexCharacterDelimited(source, ic, '\'')
 }
 
-// lexSymbol is a Go function that performs lexical analysis on a given source string and cursor position.
-//
-// Parameters:
-// - source: the source string to analyze.
-// - ic: the initial cursor position.
-//
-// Returns:
-// - token: the token found during analysis.
-// - cursor: the updated cursor position.
-// - bool: a boolean indicating whether the token is valid or not.
 func lexSymbol(source string, ic cursor) (*token, cursor, bool) {
 	c := source[ic.pointer]
 	cur := ic
-
 	// Will get overwritten later if not an ignored syntax
 	cur.pointer++
 	cur.loc.col++
@@ -222,7 +222,9 @@ func lexSymbol(source string, ic cursor) (*token, cursor, bool) {
 		cur.loc.line++
 		cur.loc.col = 0
 		fallthrough
-	case '\t', ' ':
+	case '\t':
+		fallthrough
+	case ' ':
 		return nil, cur, true
 	}
 
@@ -235,14 +237,13 @@ func lexSymbol(source string, ic cursor) (*token, cursor, bool) {
 		asteriskSymbol,
 	}
 
-	options := make([]string, len(symbols))
-	for i, s := range symbols {
-		options[i] = string(s)
+	var options []string
+	for _, s := range symbols {
+		options = append(options, string(s))
 	}
 
 	// Use `ic`, not `cur`
 	match := longestMatch(source, ic, options)
-
 	// Unknown character
 	if match == "" {
 		return nil, ic, false
@@ -258,16 +259,33 @@ func lexSymbol(source string, ic cursor) (*token, cursor, bool) {
 	}, cur, true
 }
 
-// lexKeyword lexes a keyword from the source string starting at the given cursor position.
-//
-// Parameters:
-// - source: The source string to lex.
-// - ic: The initial cursor position.
-//
-// Returns:
-// - token: The lexed token.
-// - cursor: The updated cursor position.
-// - bool: Indicates if a keyword was successfully lexed.
+func lexType(source string, ic cursor) (*token, cursor, bool) {
+	cur := ic
+	types := []keyword{
+		intKeyword,
+		textKeyword,
+	}
+
+	var options []string
+	for _, t := range types {
+		options = append(options, string(t))
+	}
+
+	match := longestMatch(source, ic, options)
+	if match == "" {
+		return nil, ic, false
+	}
+
+	cur.pointer = ic.pointer + uint(len(match))
+	cur.loc.col = ic.loc.col + uint(len(match))
+
+	return &token{
+		value: match,
+		kind:  typeKind,
+		loc:   ic.loc,
+	}, cur, true
+}
+
 func lexKeyword(source string, ic cursor) (*token, cursor, bool) {
 	cur := ic
 	keywords := []keyword{
@@ -295,22 +313,21 @@ func lexKeyword(source string, ic cursor) (*token, cursor, bool) {
 	cur.pointer = ic.pointer + uint(len(match))
 	cur.loc.col = ic.loc.col + uint(len(match))
 
+	kind := keywordKind
+	if match == string(intKeyword) || match == string(textKeyword) {
+		kind = typeKind
+	}
+
 	return &token{
 		value: match,
-		kind:  keywordKind,
+		kind:  kind,
 		loc:   ic.loc,
 	}, cur, true
 }
 
-// longestMatch finds the longest match in a given source string, based on a list of options.
-//
-// Parameters:
-// - source: the source string to search within.
-// - ic: the initial cursor position.
-// - options: a list of strings representing the options to match against.
-//
-// Returns:
-// - string: the longest match found from the options list.
+// longestMatch iterates through a source string starting at the given
+// cursor to find the longest matching substring among the provided
+// options
 func longestMatch(source string, ic cursor, options []string) string {
 	var value []byte
 	var skipList []int
@@ -356,21 +373,18 @@ func longestMatch(source string, ic cursor, options []string) string {
 	return match
 }
 
-// lexIdentifier is a Go function that analyzes a source string and a cursor position to identify an identifier token.
-//
-// It takes two parameters:
-// - source: a string representing the source code to be analyzed.
-// - ic: a cursor object representing the current position in the source code.
-//
-// It returns three values:
-// - token: a pointer to a token struct representing the identified token.
-// - cursor: a cursor object representing the updated position in the source code.
-// - bool: a boolean value indicating whether an identifier token was successfully identified.
 func lexIdentifier(source string, ic cursor) (*token, cursor, bool) {
+	// Handle separately if is a double-quoted identifier
+	if token, newCursor, ok := lexCharacterDelimited(source, ic, '"'); ok {
+		return token, newCursor, true
+	}
+
 	cur := ic
 
 	c := source[cur.pointer]
-	if !isAlphabetical(c) {
+	// Other characters count too, big ignoring non-ascii for now
+	isAlphabetical := (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+	if !isAlphabetical {
 		return nil, ic, false
 	}
 	cur.pointer++
@@ -380,12 +394,16 @@ func lexIdentifier(source string, ic cursor) (*token, cursor, bool) {
 	for ; cur.pointer < uint(len(source)); cur.pointer++ {
 		c = source[cur.pointer]
 
-		if !isAlphabetical(c) && !isNumeric(c) && !isSpecialCharacter(c) {
-			break
+		// Other characters count too, big ignoring non-ascii for now
+		isAlphabetical := (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+		isNumeric := c >= '0' && c <= '9'
+		if isAlphabetical || isNumeric || c == '$' || c == '_' {
+			value = append(value, c)
+			cur.loc.col++
+			continue
 		}
 
-		value = append(value, c)
-		cur.loc.col++
+		break
 	}
 
 	if len(value) == 0 {
@@ -393,53 +411,9 @@ func lexIdentifier(source string, ic cursor) (*token, cursor, bool) {
 	}
 
 	return &token{
+		// Unquoted dentifiers are case-insensitive
 		value: strings.ToLower(string(value)),
 		loc:   ic.loc,
 		kind:  identifierKind,
 	}, cur, true
-}
-
-func isAlphabetical(c byte) bool {
-	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
-}
-
-func isNumeric(c byte) bool {
-	return c >= '0' && c <= '9'
-}
-
-func isSpecialCharacter(c byte) bool {
-	return c == '$' || c == '_'
-}
-
-func lex(source string) ([]*token, error) {
-	tokens := []*token{}
-	cur := cursor{}
-
-	for cur.pointer < uint(len(source)) {
-		lexers := []lexer{lexString, lexNumeric, lexSymbol, lexKeyword, lexIdentifier}
-		found := false
-		for _, l := range lexers {
-			if token, newCursor, ok := l(source, cur); ok {
-				cur = newCursor
-
-				// Omit nil tokens for valid, but empty syntax like newlines
-				if token != nil {
-					tokens = append(tokens, token)
-				}
-
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			hint := ""
-			if len(tokens) > 0 {
-				hint = " after " + tokens[len(tokens)-1].value
-			}
-			return nil, fmt.Errorf("could not lex unrecognized input at line %d, column %d%s", cur.loc.line+1, cur.loc.col+1, hint)
-		}
-	}
-
-	return tokens, nil
 }
