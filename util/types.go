@@ -63,3 +63,34 @@ type Cursor struct {
 }
 
 type Lexer func(string, Cursor) (*Token, Cursor, bool)
+
+type ColumnType uint
+
+type Cell interface {
+	AsText() string
+	AsInt() int32
+}
+
+type ResultColumn struct {
+	Type ColumnType
+	Name string
+}
+
+type Results struct {
+	Columns []ResultColumn
+	Rows    [][]Cell
+}
+
+type MemoryCell []byte
+
+type Table struct {
+	Columns     []string
+	ColumnTypes []ColumnType
+	Rows        [][]MemoryCell
+}
+
+type Backend interface {
+	CreateTable(*CreateTableStatement) error
+	Insert(*InsertStatement) error
+	Select(*SelectStatement) (*Results, error)
+}

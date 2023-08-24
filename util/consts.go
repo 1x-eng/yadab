@@ -40,3 +40,8 @@ const (
 	NumericKind
 	TypeKind
 )
+
+const (
+	TextType ColumnType = iota
+	IntType
+)
