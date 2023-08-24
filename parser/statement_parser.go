@@ -4,8 +4,6 @@ import . "github.com/1x-eng/yadab/util"
 
 func parseStatement(tokens []*Token, initialCursor uint, delimiter Token) (*Statement, uint, bool) {
 	cursor := initialCursor
-
-	// Look for a SELECT statement
 	semicolonToken := tokenFromSymbol(SemicolonSymbol)
 
 	// Look for a CREATE statement
