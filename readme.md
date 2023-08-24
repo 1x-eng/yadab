@@ -2,7 +2,7 @@
 
 I know.. I know.. Whyyyyyyy, another database? 
 
-Hmmm, for some reason, Im intrigued, often confused, sometimes scared about all the 'engineering' that makes the databases tick. And, its all about getting hands 'dirty', right ;) So, here it is. A labor of 'love'; a rookie relational database from ground up. And, its in `go`. (If I had to do this again, Im unsure if I'll pick go again :thinking: Maybe C# or Java/Kotlin perhaps? lack of encapsulation in `go` is less than ideal to build something like a database.)
+Hmmm, for some reason, Im intrigued, often confused, sometimes scared about all the 'engineering' that makes the databases tick. And, its all about getting hands 'dirty', right ;) So, here it is. A labor of 'love'; a rookie relational database from ground up. And, its in `go`. (If I had to do this again, Im unsure if I'll pick go again :thinking: Maybe C# or Java/Kotlin perhaps? lack of 'true' encapsulation in `go` is less than ideal to build something like a database.)
 
 (Maybe I should be doing better with picking a name? doesn't sound as good/natural as yaml :thinking:)
 
